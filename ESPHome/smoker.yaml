@@ -1,0 +1,279 @@
+esphome:
+  name: "smoker"
+  friendly_name: Smoker
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !!!!!!!!!!!!!!!!!!!!! VLOZIT API KLIC !!!!!!!!!!!!!!!!!!!!!!!!!!
+
+ota:
+
+wifi:
+  networks:
+  - ssid: !secret wifi_ssid
+    password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Esphome-Web-D03Ff4"
+    password: "wYUGNUcLEMsM"
+
+captive_portal:
+    
+dallas:
+  - pin: GPIO5
+
+sensor:
+  - platform: dallas
+    address: 0x3e0000000ff6a428
+    name: "Relay cooling Temperature"
+    id: ssr_cooling_temp
+    filters:
+      - offset: 0
+
+  - platform: adc
+    id: room_t_adc
+    pin: GPIO36
+    update_interval: 1s
+    attenuation: 11dB
+    filters:
+      - sliding_window_moving_average:
+          window_size: 5
+          send_every: 5
+
+  - platform: adc
+    id: probe_t1_adc
+    pin: GPIO34
+    update_interval: 30s
+    attenuation: 11dB
+    filters:
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 3
+
+  - platform: adc
+    id: probe_t2_adc
+    pin: GPIO35
+    update_interval: 30s
+    attenuation: 11dB
+    filters:
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 3
+  
+  - platform: adc
+    id: probe_t3_adc
+    pin: GPIO39
+    update_interval: 30s
+    attenuation: 11dB
+    filters:
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 3
+
+  - platform: resistance
+    id: room_t_resistance
+    sensor: room_t_adc
+    configuration: DOWNSTREAM
+    resistor: 4.7kOhm
+
+  - platform: resistance
+    id: probe_t1_resistance
+    sensor: probe_t1_adc
+    configuration: DOWNSTREAM
+    resistor: 47kOhm
+
+  - platform: resistance
+    id: probe_t2_resistance
+    sensor: probe_t2_adc
+    configuration: DOWNSTREAM
+    resistor: 47kOhm
+
+  - platform: resistance
+    id: probe_t3_resistance
+    sensor: probe_t3_adc
+    configuration: DOWNSTREAM
+    resistor: 47kOhm
+
+  - platform: ntc
+    name: Room Temperature
+    id: room_temperature
+    sensor: room_t_resistance
+    calibration:
+      b_constant: 3950
+      reference_temperature: 25°C
+      reference_resistance: 10kOhm
+    filters:
+      - lambda: |-
+          if (x > -20) {
+            return x;
+          } else {
+            return -99;
+          }
+      - filter_out: -99
+
+  - platform: ntc
+    name: Probe 1 Temperature
+    sensor: probe_t1_resistance
+    calibration:
+      b_constant: 3950
+      reference_temperature: 25°C
+      reference_resistance: 100kOhm
+    filters:
+      - lambda: |-
+          if (x > -10) {
+            return x;
+          } else {
+            return -99;
+          }
+      - filter_out: -99
+
+  - platform: ntc
+    name: Probe 2 Temperature
+    sensor: probe_t2_resistance
+    calibration:
+      b_constant: 3950
+      reference_temperature: 25°C
+      reference_resistance: 100kOhm
+    filters:
+      - lambda: |-
+          if (x > -10) {
+            return x;
+          } else {
+            return -99;
+          }
+      - filter_out: -99
+
+  - platform: ntc
+    name: Probe 3 Temperature
+    sensor: probe_t3_resistance
+    calibration:
+      b_constant: 3950
+      reference_temperature: 25°C
+      reference_resistance: 100kOhm
+    filters:
+      - lambda: |-
+          if (x > -10) {
+            return x;
+          } else {
+            return -99;
+          }
+      - filter_out: -99
+
+  - platform: pid
+    name: "PID Climate Result"
+    type: RESULT
+    climate_id: room_temperature_pid
+
+  - platform: pid
+    name: "PID Climate heat"
+    type: HEAT
+    climate_id: room_temperature_pid
+  - platform: pid
+    name: "PID Climate PROPORTIONAL"
+    type: PROPORTIONAL
+    climate_id: room_temperature_pid
+  - platform: pid
+    name: "PID Climate INTEGRAL"
+    type: INTEGRAL
+    climate_id: room_temperature_pid
+  - platform: pid
+    name: "PID Climate DERIVATIVE"
+    type: DERIVATIVE 
+    climate_id: room_temperature_pid
+
+output:
+  - platform: slow_pwm
+    pin: GPIO2
+    id: ssr_pwm
+    period: 5s
+    max_power: 0.4
+
+  - platform: ledc
+    pin: GPIO0
+    frequency: 10000 Hz
+    id: smoke_pwm
+
+  - platform: ledc
+    pin: GPIO4
+    frequency: 50000 Hz
+    id: ssr_cooling_pwm
+
+  - platform: gpio
+    pin: GPIO32
+    id: inner_light
+
+  - platform: gpio
+    pin: GPIO25
+    id: outer_light
+
+  - platform: gpio
+    pin: GPIO17
+    id: aux_output
+
+  - platform: gpio
+    pin: GPIO12
+    id: relay
+
+# Aktuatory PWM - ventilatory a SSR
+light:
+  - platform: monochromatic
+    output: smoke_pwm
+    name: "Smoke fan PWM"
+    icon: mdi:fan
+
+  - platform: binary
+    name: Inner light
+    output: inner_light
+
+  - platform: binary
+    name: Outer light
+    output: outer_light
+
+  - platform: binary
+    name: Aux output
+    output: aux_output
+
+climate:
+  # PID regulator chlazeni SSR rele
+  - platform: pid
+    name: "SSR Cooling Controller"
+    icon: mdi:snowflake-alert
+    sensor: ssr_cooling_temp
+    default_target_temperature: 40°C
+    cool_output : ssr_cooling_pwm
+    control_parameters:
+      kp: 0.1
+      ki: 0
+      kd: 0
+
+  # PID regulator topeni pomoci SSR
+  - platform: pid
+    name: "Heating Controller"
+    id: room_temperature_pid
+    icon: mdi:radiator
+    sensor: room_temperature
+    default_target_temperature: 0°C
+    heat_output: ssr_pwm
+    control_parameters:
+      kp: 0.2
+      ki: 0.002
+      kd: 8
+      min_integral: 0
+      max_integral: 0.70
+      derivative_averaging_samples: 6
+    visual:
+      min_temperature: 25
+      max_temperature: 90
+      temperature_step:
+        target_temperature: 1
+        current_temperature: 0.1
